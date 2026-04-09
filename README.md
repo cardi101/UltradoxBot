@@ -1,4 +1,4 @@
-# UltraDoxBot
+# UltradoxBot
 
 Telegram-бот для мониторинга новинок и обновлений на сайте [ultadox.space](https://010.ultadox.space/).
 
@@ -27,8 +27,8 @@ Telegram-бот для мониторинга новинок и обновлен
 ### 1. Клонировать репозиторий
 
 ```bash
-git clone https://github.com/cardi101/ultradoxbot.git
-cd ultradoxbot
+git clone https://github.com/cardi101/UltradoxBot.git
+cd UltradoxBot
 ```
 
 ### 2. Создать `.env` файл
