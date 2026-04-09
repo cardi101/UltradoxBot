@@ -1,0 +1,11 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_CHAT_ID=${ADMIN_CHAT_ID:-443539115}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-Cardinal_GriseX}
+      - DB_PATH=/data/bot_data.db
+    volumes:
+      - ./data:/data

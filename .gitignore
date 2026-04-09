@@ -1,0 +1,10 @@
+bot_token.txt
+bot_data.db
+subscribers.txt
+active_subscribers.txt
+*.log
+__pycache__/
+venv/
+*.pyc
+.env
+data/
