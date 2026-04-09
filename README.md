@@ -1,5 +1,9 @@
 # UltradoxBot
 
+![Docker Build](https://github.com/cardi101/UltradoxBot/actions/workflows/docker.yml/badge.svg)
+![License](https://img.shields.io/github/license/cardi101/UltradoxBot)
+![Python](https://img.shields.io/badge/python-3.11-blue)
+
 Telegram-бот для мониторинга новинок и обновлений на сайте [ultadox.space](https://010.ultadox.space/).
 
 Бот каждые 5 минут парсит таблицу с фильмами и сериалами, определяет новые записи и изменения в существующих, и рассылает уведомления всем подписчикам.
@@ -62,14 +66,14 @@ docker compose logs -f
 ## Структура проекта
 
 ```
-├── main.py          # Точка входа
-├── config.py        # Конфигурация и константы
-├── db.py            # Работа с базой данных (SQLite)
-├── parser.py        # Парсинг сайта (requests + BeautifulSoup)
-├── broadcaster.py   # Рассылка уведомлений
-├── handlers.py      # Обработчики команд Telegram
-├── docker-compose.yml
+├── main.py           # Точка входа
+├── config.py         # Конфигурация и константы
+├── db.py             # Работа с базой данных (SQLite)
+├── parser.py         # Парсинг сайта (requests + BeautifulSoup)
+├── broadcaster.py    # Рассылка уведомлений
+├── handlers.py       # Обработчики команд Telegram
 ├── Dockerfile
+├── docker-compose.yml
 └── requirements.txt
 ```
 
@@ -80,3 +84,7 @@ docker compose logs -f
 - [APScheduler](https://apscheduler.readthedocs.io/) — планировщик задач
 - SQLite — хранение данных
 - Docker — деплой
+
+## Лицензия
+
+[MIT](LICENSE)
