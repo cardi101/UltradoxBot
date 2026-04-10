@@ -8,3 +8,5 @@ venv/
 *.pyc
 .env
 data/
+.claude/
+ultradoxparser.py

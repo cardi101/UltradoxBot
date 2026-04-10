@@ -13,12 +13,14 @@ from telegram.ext import CallbackContext
 
 from config import ADMIN_CHAT_ID, ADMIN_USERNAME, SITE_URLS, SITE_TZ, SNAPSHOT_FIELDS
 from db import (
-    _connect,
     add_subscriber,
+    get_db_stats,
+    get_entries_for_backfill,
     get_kv,
     get_subscribers_missing_username,
     is_bootstrapped,
     remove_subscriber,
+    seen_upsert,
     set_kv,
     update_username,
 )
@@ -126,21 +128,8 @@ def debug_cmd(update: Update, context: CallbackContext):
 @admin_required
 def stats_cmd(update: Update, context: CallbackContext):
     from config import MAX_ROWS_SCAN, MAX_SEND_PER_CYCLE
-    conn = _connect()
-    try:
-        cur = conn.cursor()
-        cur.execute('SELECT COUNT(*) FROM seen_entries')
-        row = cur.fetchone()
-        seen_count = row[0] if row else 0
-        cur.execute('SELECT COUNT(*) FROM subscribers')
-        row = cur.fetchone()
-        subs_count = row[0] if row else 0
-        cur.execute("SELECT COUNT(*) FROM subscribers WHERE username IS NOT NULL AND username <> ''")
-        row = cur.fetchone()
-        subs_with_username = row[0] if row else 0
-    finally:
-        conn.close()
     from datetime import datetime
+    stats = get_db_stats()
     bs = 'да' if is_bootstrapped() else 'нет'
     last_scan_ts = get_kv('last_scan_ts')
     fail_count = get_kv('scan_fail_count') or '0'
@@ -151,8 +140,8 @@ def stats_cmd(update: Update, context: CallbackContext):
         last_scan_str = 'никогда'
     _reply_safe(update,
         f"📊 <b>Статистика</b>\n"
-        f"— Виденных записей: {seen_count}\n"
-        f"— Подписчиков: {subs_count} (с username: {subs_with_username})\n"
+        f"— Виденных записей: {stats['seen']}\n"
+        f"— Подписчиков: {stats['subs']} (с username: {stats['subs_with_username']})\n"
         f"— Bootstrap: {bs}\n"
         f"— Последний скан: {last_scan_str}\n"
         f"— Сбоев подряд: {fail_count}\n"
@@ -208,37 +197,27 @@ def country_backfill_cmd(update: Update, context: CallbackContext):
     Однократная дозаправка country для уже известных записей.
     Без уведомлений, просто обновляем snapshot/last_hash, если нашли страну.
     """
-    from db import _active_base_url
+    rows = get_entries_for_backfill()
+    active_mirror = get_kv('active_base_url') or SITE_URLS[0]
 
-    conn = _connect()
-    try:
-        cur = conn.cursor()
-        cur.execute('SELECT link, last_hash, snapshot FROM seen_entries')
-        rows = cur.fetchall()
-    except Exception as e:
-        conn.close()
-        _reply_safe(update, f'❌ Ошибка чтения БД: {e}')
-        return
-
-    COMMIT_EVERY = 50
     checked = 0
     updated = 0
-    for link, last_hash, snap_txt in rows:
+    for link, _last_hash, snap_txt in rows:
         checked += 1
         try:
             snap = json.loads(snap_txt) if snap_txt else {}
         except (json.JSONDecodeError, ValueError):
             snap = {}
 
-        curr_country = (snap or {}).get('country', '').strip()
-        curr_orig = (snap or {}).get('orig_title', '').strip()
+        curr_country = snap.get('country', '').strip()
+        curr_orig = snap.get('orig_title', '').strip()
         if curr_country and curr_orig:
             continue
         if not link or link.startswith('nolink://'):
             continue
 
         # Ключ может быть rel-путём после миграции — строим abs URL
-        abs_link = link if link.startswith('http') else urljoin(_active_base_url(), link)
+        abs_link = link if link.startswith('http') else urljoin(active_mirror, link)
         details = fetch_entry_details(abs_link)
         changed = False
         if not curr_country and details['country']:
@@ -249,27 +228,17 @@ def country_backfill_cmd(update: Update, context: CallbackContext):
             changed = True
         if not changed:
             continue
+
         entry_like = {k: snap.get(k, '') for k in SNAPSHOT_FIELDS}
         new_hash = compute_row_hash(entry_like)
-        now_ts = int(time.time())
-        snap_txt_new = json.dumps(snap, ensure_ascii=False, separators=(',', ':'))
-
         try:
-            cur.execute(
-                'UPDATE seen_entries SET last_hash = ?, last_seen_ts = ?, snapshot = ? WHERE link = ?',
-                (new_hash, now_ts, snap_txt_new, link)
-            )
+            seen_upsert(link, new_hash, int(time.time()), snap)
             updated += 1
         except Exception as e:
             logging.warning(f'country_backfill: ошибка обновления {link}: {e}')
 
-        if updated % COMMIT_EVERY == 0:
-            conn.commit()
-
         time.sleep(0.02)
 
-    conn.commit()
-    conn.close()
     _reply_safe(update, f'🧩 Country backfill: обработано {checked}, обновлено {updated} записей (без уведомлений).')
 
 

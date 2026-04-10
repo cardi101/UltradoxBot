@@ -19,7 +19,7 @@ from config import (
     SNAPSHOT_FIELDS,
 )
 from db import (
-    _connect,
+    entry_key,
     get_kv,
     get_subscribers,
     is_bootstrapped,
@@ -29,21 +29,20 @@ from db import (
     seen_touch,
     seen_upsert,
     set_kv,
+    wal_checkpoint,
 )
+from parser import fetch_page, fill_entry_details, parse_entries
 
 
 # =======================
 # Вспомогательные функции
 # =======================
 
-def _entry_key(e: Dict[str, str]) -> str:
-    """Стабильный ключ для seen_entries — только относительный путь, не зависит от зеркала."""
-    rel = (e.get('rel_link') or '').strip()
-    if rel:
-        return rel if rel.startswith('/') else '/' + rel
-    # Нет ссылки — хэшируем по title + row_index, чтобы избежать коллизий
-    seed = f"{e.get('title', '')}|{e.get('row_index', '')}"
-    return 'nolink://' + hashlib.sha1(seed.encode('utf-8')).hexdigest()
+_DEAD_SUBSCRIBER_ERRORS = ('bot was blocked', 'user is deactivated', 'chat not found')
+
+
+def _is_dead_subscriber(error_text: str) -> bool:
+    return any(kw in error_text for kw in _DEAD_SUBSCRIBER_ERRORS)
 
 
 def compute_row_hash(entry: Dict[str, str]) -> str:
@@ -169,7 +168,7 @@ def detect_changes(entries: List[Dict[str, str]]) -> Tuple[List[Dict[str, str]],
     ts = int(time.time())
 
     for e in entries:
-        db_key = _entry_key(e)
+        db_key = entry_key(e)
         # Если rel_link пустой — ставим синтетический link для отображения
         if not e.get('link'):
             e['link'] = 'nolink://' + hashlib.sha1(e.get('title', '').encode('utf-8')).hexdigest()
@@ -216,8 +215,6 @@ def _alert_admin(bot: Bot, text: str):
 
 
 def broadcast_cycle(bot: Bot):
-    from parser import fetch_page, parse_entries, fill_entry_details
-
     if not SCANNER_LOCK.acquire(blocking=False):
         logging.warning('Сканер уже работает — пропуск цикла.')
         return
@@ -256,7 +253,7 @@ def broadcast_cycle(bot: Bot):
         if not is_bootstrapped():
             ts = int(time.time())
             for e in entries:
-                db_key = _entry_key(e)
+                db_key = entry_key(e)
                 seen_upsert(db_key, compute_row_hash(e), ts, build_snapshot(e))
             mark_bootstrapped()
             logging.info(f'Bootstrap: помечено {len(entries)} записей как виденные (без рассылки).')
@@ -270,7 +267,7 @@ def broadcast_cycle(bot: Bot):
                                              disable_web_page_preview=True, protect_content=False)
                         except Exception as ex:
                             err = str(ex)
-                            if 'bot was blocked' in err or 'user is deactivated' in err or 'chat not found' in err:
+                            if _is_dead_subscriber(err):
                                 remove_subscriber(chat_id)
                                 logging.info(f'Подписчик {chat_id} удалён: {err}')
                             else:
@@ -306,17 +303,12 @@ def broadcast_cycle(bot: Bot):
                     sent += 1
                 except Exception as ex:
                     err = str(ex)
-                    if 'bot was blocked' in err or 'user is deactivated' in err or 'chat not found' in err:
+                    if _is_dead_subscriber(err):
                         remove_subscriber(chat_id)
                         logging.info(f'Подписчик {chat_id} удалён: {err}')
                     else:
                         logging.error(f'Не удалось отправить {chat_id}: {ex}')
         logging.info(f'Цикл завершён. Отправлено сообщений: {sent}')
     finally:
-        try:
-            conn = _connect()
-            conn.execute('PRAGMA wal_checkpoint(TRUNCATE);')
-            conn.close()
-        except Exception:
-            pass
+        wal_checkpoint()
         SCANNER_LOCK.release()

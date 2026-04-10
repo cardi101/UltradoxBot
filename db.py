@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -226,5 +227,52 @@ def cleanup_old_entries():
         conn.commit()
         if deleted:
             logging.info(f'Cleanup: удалено {deleted} устаревших записей (старше {EXPIRE_DAYS} дней)')
+    finally:
+        conn.close()
+
+
+def entry_key(e: Dict[str, str]) -> str:
+    """Стабильный ключ для seen_entries — только относительный путь, не зависит от зеркала."""
+    rel = (e.get('rel_link') or '').strip()
+    if rel:
+        return rel if rel.startswith('/') else '/' + rel
+    seed = f"{e.get('title', '')}|{e.get('row_index', '')}"
+    return 'nolink://' + hashlib.sha1(seed.encode('utf-8')).hexdigest()
+
+
+def get_db_stats() -> Dict[str, int]:
+    """Возвращает агрегированную статистику из БД."""
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT COUNT(*) FROM seen_entries')
+        seen_count = cur.fetchone()[0]
+        cur.execute('SELECT COUNT(*) FROM subscribers')
+        subs_count = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM subscribers WHERE username IS NOT NULL AND username <> ''")
+        subs_with_username = cur.fetchone()[0]
+    finally:
+        conn.close()
+    return {'seen': seen_count, 'subs': subs_count, 'subs_with_username': subs_with_username}
+
+
+def get_entries_for_backfill() -> List[Tuple[str, str, str]]:
+    """Возвращает (link, last_hash, snapshot) для всех seen_entries."""
+    conn = _connect()
+    try:
+        cur = conn.cursor()
+        cur.execute('SELECT link, last_hash, snapshot FROM seen_entries')
+        return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def wal_checkpoint():
+    """Сбрасывает WAL-файл SQLite на диск (TRUNCATE mode)."""
+    conn = _connect()
+    try:
+        conn.execute('PRAGMA wal_checkpoint(TRUNCATE);')
+    except Exception:
+        pass
     finally:
         conn.close()

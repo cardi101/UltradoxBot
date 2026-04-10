@@ -17,7 +17,7 @@ from config import (
     SITE_URLS,
     _http,
 )
-from db import get_kv, seen_get, set_kv
+from db import entry_key, get_kv, seen_get, set_kv
 
 
 def fetch_page() -> Tuple[Optional[str], Optional[str]]:
@@ -178,11 +178,9 @@ def fill_entry_details(entries: List[Dict[str, str]]):
     """Тянет страну и оригинальное название.
     Для новых записей — HTTP-запрос. Для уже известных — из снапшота,
     но если поле отсутствует (старый снапшот без orig_title) — тоже идёт на страницу."""
-    from broadcaster import _entry_key
-
     _cache: Dict[str, Dict[str, str]] = {}  # дедуп HTTP на один вызов
     for e in entries:
-        db_key = _entry_key(e)
+        db_key = entry_key(e)
         seen = seen_get(db_key)
         link = (e.get('link') or '').strip()
 
